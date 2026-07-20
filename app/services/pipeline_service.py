@@ -21,32 +21,24 @@ class ProfileNotFoundError(Exception):
     pass
 
 
-def get_latest_completed_run(
-    db: Session, profile_uuid: UUID
-) -> PipelineRun | None:
-    stmt = (
-        select(PipelineRun)
-        .where(
-            PipelineRun.profile_uuid == profile_uuid,
-            PipelineRun.status == "completed",
-        )
-        .order_by(PipelineRun.completed_at.desc())
-        .limit(1)
-    )
-    return db.scalars(stmt).first()
+def _clear_profile_run_data(db: Session, profile_uuid: UUID) -> None:
+    """Remove prior run, queries, and recommendations before a re-run."""
+    db.query(ContentRecommendation).filter_by(profile_uuid=profile_uuid).delete()
+    db.query(DiscoveredQuery).filter_by(profile_uuid=profile_uuid).delete()
+    db.query(PipelineRun).filter_by(profile_uuid=profile_uuid).delete()
+    db.flush()
 
 
 def get_profile_summary_stats(
     db: Session, profile_uuid: UUID
 ) -> ProfileSummaryStats:
-    latest_run = get_latest_completed_run(db, profile_uuid)
-    if latest_run is None:
-        return ProfileSummaryStats()
-
-    stmt = select(DiscoveredQuery).where(
-        DiscoveredQuery.run_uuid == latest_run.uuid,
+    queries = list(
+        db.scalars(
+            select(DiscoveredQuery).where(
+                DiscoveredQuery.profile_uuid == profile_uuid,
+            )
+        ).all()
     )
-    queries = list(db.scalars(stmt).all())
     if not queries:
         return ProfileSummaryStats()
 
@@ -168,6 +160,8 @@ def run_pipeline_for_profile(
     if profile is None:
         raise ProfileNotFoundError(f"Profile {profile_uuid} not found")
 
+    _clear_profile_run_data(db, profile_uuid)
+
     pipeline_run = PipelineRun(
         profile_uuid=profile_uuid,
         status="running",
@@ -238,12 +232,9 @@ def run_pipeline_for_profile(
 def list_recommendations(
     db: Session, profile_uuid: UUID
 ) -> list[RecommendationResponse]:
-    latest_run = get_latest_completed_run(db, profile_uuid)
-    if latest_run is None:
-        return []
-
-    stmt = select(ContentRecommendation).where(
-        ContentRecommendation.run_uuid == latest_run.uuid,
-    )
-    recs = db.scalars(stmt).all()
+    recs = db.scalars(
+        select(ContentRecommendation).where(
+            ContentRecommendation.profile_uuid == profile_uuid,
+        )
+    ).all()
     return [RecommendationResponse.from_recommendation(r) for r in recs]

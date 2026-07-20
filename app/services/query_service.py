@@ -9,7 +9,7 @@ from app.agents.visibility_scoring_agent import score_single_query
 from app.models.discovered_query import DiscoveredQuery
 from app.models.profile import BusinessProfile
 from app.schemas.agents import DiscoveredQuery as AgentDiscoveredQuery
-from app.services.pipeline_service import ProfileNotFoundError, get_latest_completed_run
+from app.services.pipeline_service import ProfileNotFoundError
 from app.schemas.queries import QueryListResponse, QueryResponse, RecheckQueryResponse
 
 
@@ -39,12 +39,8 @@ def list_queries(
     if profile is None:
         raise ProfileNotFoundError(f"Profile {profile_uuid} not found")
 
-    latest_run = get_latest_completed_run(db, profile_uuid)
-    if latest_run is None:
-        return QueryListResponse(items=[], page=page, per_page=per_page, total=0)
-
     base = select(DiscoveredQuery).where(
-        DiscoveredQuery.run_uuid == latest_run.uuid,
+        DiscoveredQuery.profile_uuid == profile_uuid,
     )
     if min_score is not None:
         base = base.where(
@@ -83,7 +79,7 @@ def recheck_query(db: Session, query_uuid: UUID) -> RecheckQueryResponse:
 
     run_queries = db.scalars(
         select(DiscoveredQuery).where(
-            DiscoveredQuery.run_uuid == db_query.run_uuid,
+            DiscoveredQuery.profile_uuid == db_query.profile_uuid,
             DiscoveredQuery.scoring_status == "scored",
             DiscoveredQuery.opportunity_score.is_not(None),
         )
