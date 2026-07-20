@@ -11,3 +11,9 @@ wheels/
 
 # Environment variables
 .env
+
+# Database
+dev.db
+
+# Testing
+api_testing.md
