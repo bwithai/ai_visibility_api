@@ -35,6 +35,10 @@ class DiscoveredQuery(Base):
     opportunity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     domain_visible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     visibility_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    scoring_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     discovered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

@@ -68,6 +68,7 @@ def execute_pipeline(
         "profile": profile,
         "queries": [],
         "scored_queries": [],
+        "failed_queries": [],
         "recommendations": [],
         "pipeline_run_uuid": run_uuid,
         "status": "running",
@@ -79,9 +80,17 @@ def execute_pipeline(
     status = _resolve_pipeline_status(final_state)
 
     scored_queries = final_state.get("scored_queries", [])
+    failed_queries = final_state.get("failed_queries", [])
     top_opportunity = sorted(
         scored_queries, key=lambda q: q.opportunity_score, reverse=True
     )[:3]
+
+    scoring_warning: str | None = None
+    if failed_queries:
+        scoring_warning = (
+            f"{len(failed_queries)} of "
+            f"{len(final_state.get('queries', []))} queries failed to score"
+        )
 
     result = PipelineRunResult(
         pipeline_run_uuid=run_uuid,
@@ -91,7 +100,7 @@ def execute_pipeline(
         top_opportunity_queries=top_opportunity,
         content_recommendations=final_state.get("recommendations", []),
         total_tokens_used=final_state.get("total_tokens", 0),
-        error=final_state.get("error"),
+        error=final_state.get("error") or scoring_warning,
     )
     return result, final_state
 

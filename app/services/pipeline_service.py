@@ -12,6 +12,7 @@ from app.models.discovered_query import DiscoveredQuery
 from app.models.pipeline_run import PipelineRun
 from app.models.profile import BusinessProfile
 from app.schemas.agents import BusinessProfile as AgentProfile
+from app.schemas.agents import DiscoveredQuery as AgentDiscoveredQuery
 from app.schemas.agents import PipelineRunResult, ScoredQuery
 from app.schemas.queries import ProfileSummaryStats, RecommendationResponse
 
@@ -44,16 +45,19 @@ def get_profile_summary_stats(
 
     stmt = select(DiscoveredQuery).where(
         DiscoveredQuery.run_uuid == latest_run.uuid,
-        DiscoveredQuery.opportunity_score.is_not(None),
     )
     queries = list(db.scalars(stmt).all())
     if not queries:
-        return ProfileSummaryStats(total_queries_discovered=0, avg_opportunity_score=None)
+        return ProfileSummaryStats()
 
-    avg_score = sum(q.opportunity_score for q in queries) / len(queries)
+    scored = [q for q in queries if q.scoring_status == "scored" and q.opportunity_score is not None]
+    avg_score = None
+    if scored:
+        avg_score = round(sum(q.opportunity_score for q in scored) / len(scored), 4)
+
     return ProfileSummaryStats(
         total_queries_discovered=len(queries),
-        avg_opportunity_score=round(avg_score, 4),
+        avg_opportunity_score=avg_score,
     )
 
 
@@ -63,33 +67,71 @@ def _parse_discovered_at(scored: ScoredQuery) -> datetime:
     return datetime.fromisoformat(scored.discovered_at)
 
 
-def _persist_scored_queries(
+def _persist_all_queries(
     db: Session,
     profile_uuid: UUID,
     run_uuid: UUID,
+    discovered: list[AgentDiscoveredQuery],
     scored_queries: list[ScoredQuery],
-    discovery_api_keywords: dict[str, str],
+    failed_queries: list[dict[str, str]],
 ) -> dict[str, UUID]:
-    """Insert scored queries and return agent query_uuid -> DB uuid map."""
+    """Persist every discovered query — scored or failed — and return uuid map."""
+    scored_map = {s.query_uuid: s for s in scored_queries}
+    failed_map = {f["query_uuid"]: f for f in failed_queries}
     uuid_map: dict[str, UUID] = {}
-    for scored in scored_queries:
-        query_uuid = UUID(scored.query_uuid)
-        db_query = DiscoveredQuery(
-            uuid=query_uuid,
-            profile_uuid=profile_uuid,
-            run_uuid=run_uuid,
-            query_text=scored.query_text,
-            api_keyword=discovery_api_keywords.get(scored.query_uuid, scored.query_text),
-            commercial_intent=scored.commercial_intent,
-            estimated_search_volume=scored.estimated_search_volume,
-            competitive_difficulty=scored.competitive_difficulty,
-            opportunity_score=scored.opportunity_score,
-            domain_visible=scored.domain_visible,
-            visibility_position=scored.visibility_position,
-            discovered_at=_parse_discovered_at(scored),
-        )
+
+    for discovered_query in discovered:
+        query_uuid = UUID(discovered_query.query_uuid)
+        scored = scored_map.get(discovered_query.query_uuid)
+        failed = failed_map.get(discovered_query.query_uuid)
+
+        if scored:
+            db_query = DiscoveredQuery(
+                uuid=query_uuid,
+                profile_uuid=profile_uuid,
+                run_uuid=run_uuid,
+                query_text=scored.query_text,
+                api_keyword=discovered_query.api_keyword,
+                commercial_intent=scored.commercial_intent,
+                estimated_search_volume=scored.estimated_search_volume,
+                competitive_difficulty=scored.competitive_difficulty,
+                opportunity_score=scored.opportunity_score,
+                domain_visible=scored.domain_visible,
+                visibility_position=scored.visibility_position,
+                scoring_status="scored",
+                error_message=None,
+                discovered_at=_parse_discovered_at(scored),
+            )
+        elif failed:
+            db_query = DiscoveredQuery(
+                uuid=query_uuid,
+                profile_uuid=profile_uuid,
+                run_uuid=run_uuid,
+                query_text=discovered_query.query_text,
+                api_keyword=discovered_query.api_keyword,
+                commercial_intent=discovered_query.commercial_intent,
+                estimated_search_volume=None,
+                competitive_difficulty=None,
+                opportunity_score=None,
+                domain_visible=None,
+                visibility_position=None,
+                scoring_status="failed",
+                error_message=failed.get("error"),
+            )
+        else:
+            db_query = DiscoveredQuery(
+                uuid=query_uuid,
+                profile_uuid=profile_uuid,
+                run_uuid=run_uuid,
+                query_text=discovered_query.query_text,
+                api_keyword=discovered_query.api_keyword,
+                commercial_intent=discovered_query.commercial_intent,
+                scoring_status="pending",
+            )
+
         db.add(db_query)
-        uuid_map[scored.query_uuid] = query_uuid
+        uuid_map[discovered_query.query_uuid] = query_uuid
+
     return uuid_map
 
 
@@ -147,25 +189,25 @@ def run_pipeline_for_profile(
 
         scored_queries = final_state.get("scored_queries", [])
         discovered = final_state.get("queries", [])
-        discovery_api_keywords = {
-            q.query_uuid: q.api_keyword for q in discovered
-        }
+        failed_queries = final_state.get("failed_queries", [])
 
-        if scored_queries:
-            query_uuid_map = _persist_scored_queries(
+        if discovered:
+            query_uuid_map = _persist_all_queries(
                 db,
                 profile_uuid,
                 pipeline_run.uuid,
+                discovered,
                 scored_queries,
-                discovery_api_keywords,
+                failed_queries,
             )
-            _persist_recommendations(
-                db,
-                profile_uuid,
-                pipeline_run.uuid,
-                final_state.get("recommendations", []),
-                query_uuid_map,
-            )
+            if scored_queries:
+                _persist_recommendations(
+                    db,
+                    profile_uuid,
+                    pipeline_run.uuid,
+                    final_state.get("recommendations", []),
+                    query_uuid_map,
+                )
 
         pipeline_run.status = result.status
         pipeline_run.queries_discovered = result.queries_discovered_count

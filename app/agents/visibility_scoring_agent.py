@@ -150,18 +150,20 @@ def create_visibility_scoring_node() -> Callable[[PipelineState], dict]:
                 )
 
         if not raw_metrics:
-            skipped_summary = "; ".join(
-                f"{item['query_text']!r}: {item['error']}" for item in skipped_queries
+            log_agent_action(
+                logger,
+                AGENT_NAME,
+                "Scoring complete — all queries failed",
+                {
+                    "scored_count": 0,
+                    "skipped_count": len(skipped_queries),
+                    "skipped_queries": skipped_queries,
+                },
             )
-            error = (
-                "All queries failed to score."
-                if skipped_queries
-                else "No query metrics were collected."
-            )
-            if skipped_summary:
-                error = f"{error} Details: {skipped_summary}"
-            logger.error("[%s] %s", AGENT_NAME, error)
-            return {"status": "failed", "error": error}
+            return {
+                "scored_queries": [],
+                "failed_queries": skipped_queries,
+            }
 
         max_volume = max((m["volume"] for m in raw_metrics), default=1)
         scored_queries: list[ScoredQuery] = []
@@ -220,6 +222,9 @@ def create_visibility_scoring_node() -> Callable[[PipelineState], dict]:
             },
         )
 
-        return {"scored_queries": scored_queries}
+        return {
+            "scored_queries": scored_queries,
+            "failed_queries": skipped_queries,
+        }
 
     return visibility_scoring_node

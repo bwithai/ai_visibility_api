@@ -83,6 +83,8 @@ Four tables power the API. Schema decisions:
 
 **Nullable `domain_visible`:** Supports the `?status=unknown` filter for queries that have not yet been scored or have indeterminate visibility.
 
+**`scoring_status` and `error_message` on queries:** When DataForSEO fails for an individual query, that query is stored with `scoring_status: failed` and the error message. The pipeline continues scoring remaining queries and Agent 3 still runs. Use `POST /api/v1/queries/{query_uuid}/recheck` to retry failed queries later.
+
 **Extra columns `api_keyword` and `commercial_intent`:** Required for Agent 2 recheck (DataForSEO keyword lookup) and the opportunity score formula (commercial intent multiplier).
 
 ## Pipeline

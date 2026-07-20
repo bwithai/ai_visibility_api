@@ -4,8 +4,9 @@ from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
+ScoringStatus = Literal["scored", "failed", "pending"]
 VisibilityStatus = Literal["visible", "not_visible", "unknown"]
 
 
@@ -17,11 +18,13 @@ class ProfileSummaryStats(BaseModel):
 class QueryResponse(BaseModel):
     query_uuid: UUID
     query_text: str
-    estimated_search_volume: int
-    competitive_difficulty: int = Field(ge=0, le=100)
-    opportunity_score: float = Field(ge=0.0, le=1.0)
-    domain_visible: bool
+    scoring_status: ScoringStatus
+    estimated_search_volume: Optional[int] = None
+    competitive_difficulty: Optional[int] = Field(default=None, ge=0, le=100)
+    opportunity_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    domain_visible: Optional[bool] = None
     visibility_position: Optional[int] = None
+    error_message: Optional[str] = None
     discovered_at: datetime
 
     @classmethod
@@ -29,11 +32,13 @@ class QueryResponse(BaseModel):
         return cls(
             query_uuid=query.uuid,
             query_text=query.query_text,
+            scoring_status=query.scoring_status,
             estimated_search_volume=query.estimated_search_volume,
             competitive_difficulty=query.competitive_difficulty,
             opportunity_score=query.opportunity_score,
             domain_visible=query.domain_visible,
             visibility_position=query.visibility_position,
+            error_message=query.error_message,
             discovered_at=query.discovered_at,
         )
 
@@ -48,11 +53,13 @@ class QueryListResponse(BaseModel):
 class RecheckQueryResponse(BaseModel):
     query_uuid: UUID
     query_text: str
-    estimated_search_volume: int
-    competitive_difficulty: int = Field(ge=0, le=100)
-    opportunity_score: float = Field(ge=0.0, le=1.0)
-    domain_visible: bool
+    scoring_status: ScoringStatus
+    estimated_search_volume: Optional[int] = None
+    competitive_difficulty: Optional[int] = Field(default=None, ge=0, le=100)
+    opportunity_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    domain_visible: Optional[bool] = None
     visibility_position: Optional[int] = None
+    error_message: Optional[str] = None
     discovered_at: datetime
 
     @classmethod
@@ -60,11 +67,13 @@ class RecheckQueryResponse(BaseModel):
         return cls(
             query_uuid=query.uuid,
             query_text=query.query_text,
+            scoring_status=query.scoring_status,
             estimated_search_volume=query.estimated_search_volume,
             competitive_difficulty=query.competitive_difficulty,
             opportunity_score=query.opportunity_score,
             domain_visible=query.domain_visible,
             visibility_position=query.visibility_position,
+            error_message=query.error_message,
             discovered_at=query.discovered_at,
         )
 

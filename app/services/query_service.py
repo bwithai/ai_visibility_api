@@ -47,7 +47,10 @@ def list_queries(
         DiscoveredQuery.run_uuid == latest_run.uuid,
     )
     if min_score is not None:
-        base = base.where(DiscoveredQuery.opportunity_score >= min_score)
+        base = base.where(
+            DiscoveredQuery.opportunity_score.is_not(None),
+            DiscoveredQuery.opportunity_score >= min_score,
+        )
     base = _apply_visibility_filter(base, status)
 
     count_stmt = select(func.count()).select_from(base.subquery())
@@ -61,14 +64,8 @@ def list_queries(
     )
     queries = db.scalars(stmt).all()
 
-    items = []
-    for q in queries:
-        if q.opportunity_score is None:
-            continue
-        items.append(QueryResponse.from_query(q))
-
     return QueryListResponse(
-        items=items,
+        items=[QueryResponse.from_query(q) for q in queries],
         page=page,
         per_page=per_page,
         total=total,
@@ -87,6 +84,7 @@ def recheck_query(db: Session, query_uuid: UUID) -> RecheckQueryResponse:
     run_queries = db.scalars(
         select(DiscoveredQuery).where(
             DiscoveredQuery.run_uuid == db_query.run_uuid,
+            DiscoveredQuery.scoring_status == "scored",
             DiscoveredQuery.opportunity_score.is_not(None),
         )
     ).all()
@@ -102,13 +100,18 @@ def recheck_query(db: Session, query_uuid: UUID) -> RecheckQueryResponse:
         commercial_intent=db_query.commercial_intent,  # type: ignore[arg-type]
     )
 
-    scored = score_single_query(agent_query, profile.domain, max_volume=max_volume)
-
-    db_query.estimated_search_volume = scored.estimated_search_volume
-    db_query.competitive_difficulty = scored.competitive_difficulty
-    db_query.opportunity_score = scored.opportunity_score
-    db_query.domain_visible = scored.domain_visible
-    db_query.visibility_position = scored.visibility_position
+    try:
+        scored = score_single_query(agent_query, profile.domain, max_volume=max_volume)
+        db_query.estimated_search_volume = scored.estimated_search_volume
+        db_query.competitive_difficulty = scored.competitive_difficulty
+        db_query.opportunity_score = scored.opportunity_score
+        db_query.domain_visible = scored.domain_visible
+        db_query.visibility_position = scored.visibility_position
+        db_query.scoring_status = "scored"
+        db_query.error_message = None
+    except Exception as exc:
+        db_query.scoring_status = "failed"
+        db_query.error_message = str(exc)
 
     db.commit()
     db.refresh(db_query)
