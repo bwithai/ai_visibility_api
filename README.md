@@ -8,13 +8,21 @@
 
 ## Quick start
 
+### Docker
+
+```console
+cp .env.example .env   # set OPENAI_API_KEY, DataForSEO creds, POSTGRES_*
+docker compose up -d --build
+```
+
+- API: http://localhost:5000
+- Adminer: http://localhost:8080
+
+### Local
+
 ```console
 uv sync
-cp .env.example .env   # fill in DATABASE_URL, OPENAI_API_KEY, DataForSEO creds
-
-.venv\Scripts\Activate.ps1         # Windows
-source .venv/bin/activate          # Linux/macOS
-
+cp .env.example .env
 alembic upgrade head
 flask --app app:create_app run
 ```

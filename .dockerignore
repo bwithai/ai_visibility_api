@@ -1,0 +1,11 @@
+.venv
+__pycache__
+*.py[cod]
+*.egg-info
+.git
+.gitignore
+.env
+dev.db
+*.md
+!README.md
+Python Developer Assessment Senior Engineer V2.pdf
