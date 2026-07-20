@@ -4,6 +4,7 @@ import logging
 from typing import Callable
 
 from app.schemas.agents import (
+    DiscoveredQuery,
     PipelineState,
     ScoredQuery,
     compute_opportunity_score,
@@ -58,6 +59,47 @@ def _combine_query_metrics(
     }
 
 
+def score_single_query(
+    query: DiscoveredQuery,
+    domain: str,
+    *,
+    max_volume: int | None = None,
+) -> ScoredQuery:
+    """Score one query for recheck flows using the same logic as the pipeline node."""
+    api_keyword = sanitize_keyword_for_google_ads(query.api_keyword)
+    keyword_metrics_map = fetch_keyword_metrics_batch(
+        [api_keyword],
+        labels={api_keyword: query.query_text},
+    )
+    item = _combine_query_metrics(query, domain, keyword_metrics_map)
+    visibility = item["visibility"]
+    volume = item["volume"]
+    score_max_volume = max(max_volume or 0, volume, 1)
+
+    opportunity_score = compute_opportunity_score(
+        volume=volume,
+        difficulty=item["difficulty"],
+        domain_visible=visibility["domain_visible"],
+        commercial_intent=query.commercial_intent,
+        max_volume=score_max_volume,
+    )
+
+    return ScoredQuery(
+        query_uuid=query.query_uuid,
+        query_text=query.query_text,
+        commercial_intent=query.commercial_intent,
+        estimated_search_volume=volume,
+        search_volume_source=item["volume_source"],
+        competitive_difficulty=item["difficulty"],
+        difficulty_source=item["difficulty_source"],
+        domain_visible=visibility["domain_visible"],
+        visibility_position=visibility["visibility_position"],
+        visibility_reason=visibility["visibility_reason"],
+        ai_search_volume=visibility.get("ai_search_volume"),
+        opportunity_score=opportunity_score,
+    )
+
+
 def create_visibility_scoring_node() -> Callable[[PipelineState], dict]:
     """Create a LangGraph node that scores queries using DataForSEO APIs only."""
 
@@ -71,15 +113,15 @@ def create_visibility_scoring_node() -> Callable[[PipelineState], dict]:
             return {"status": "failed", "error": "No queries to score"}
 
         # Production: score every discovered query.
-        queries_to_score = queries
+        # queries_to_score = queries
 
         # Dev/testing — limit LLM Mentions API calls to save credits.
         # Uncomment the block below and comment out `queries_to_score = queries` above.
-        # import random
-        # MAX_QUERIES_TO_SCORE = 1  # DataForSEO live endpoint: 12 req/min
-        # queries_to_score = random.sample(
-        #     queries, min(MAX_QUERIES_TO_SCORE, len(queries))
-        # )
+        import random
+        MAX_QUERIES_TO_SCORE = 1  # DataForSEO live endpoint: 12 req/min
+        queries_to_score = random.sample(
+            queries, min(MAX_QUERIES_TO_SCORE, len(queries))
+        )
 
         log_agent_action(
             logger,
