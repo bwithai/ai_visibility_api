@@ -113,15 +113,15 @@ def create_visibility_scoring_node() -> Callable[[PipelineState], dict]:
             return {"status": "failed", "error": "No queries to score"}
 
         # Production: score every discovered query.
-        # queries_to_score = queries
+        queries_to_score = queries
 
         # Dev/testing — limit LLM Mentions API calls to save credits.
         # Uncomment the block below and comment out `queries_to_score = queries` above.
-        import random
-        MAX_QUERIES_TO_SCORE = 1  # DataForSEO live endpoint: 12 req/min
-        queries_to_score = random.sample(
-            queries, min(MAX_QUERIES_TO_SCORE, len(queries))
-        )
+        # import random
+        # MAX_QUERIES_TO_SCORE = 1  # DataForSEO live endpoint: 12 req/min
+        # queries_to_score = random.sample(
+        #     queries, min(MAX_QUERIES_TO_SCORE, len(queries))
+        # )
 
         log_agent_action(
             logger,
