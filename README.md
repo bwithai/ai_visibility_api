@@ -18,6 +18,21 @@ source .venv/bin/activate          # Linux/macOS
 alembic upgrade head
 flask --app app:create_app run
 ```
+
+---
+
+## API Testing Guide
+
+Step-by-step PowerShell commands and sample JSON responses from a full end-to-end run (Query Discovery → Visibility Scoring → Content Recommendations).
+
+**[View API testing guide →](api_testing.md)**
+
+| Step | What it verifies |
+|------|------------------|
+| Create profile | `POST /api/v1/profiles` |
+| Run pipeline | All three agents execute successfully |
+| Fetch results | Profile stats, queries, and recommendations |
+
 ---
 ## Project Structure
 
