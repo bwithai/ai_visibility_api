@@ -53,11 +53,15 @@ def create_collaborative_workflow(llm: ChatOpenAI):
     return graph.compile()
 
 
-def run_pipeline(profile: BusinessProfile, llm: ChatOpenAI = get_llm()) -> PipelineRunResult:
-    """Run the full pipeline and return a structured result."""
+def execute_pipeline(
+    profile: BusinessProfile,
+    llm: ChatOpenAI = get_llm(),
+    pipeline_run_uuid: str | None = None,
+) -> tuple[PipelineRunResult, PipelineState]:
+    """Run the full pipeline and return the result plus final state."""
     from uuid import uuid4
 
-    pipeline_run_uuid = str(uuid4())
+    run_uuid = pipeline_run_uuid or str(uuid4())
     workflow = create_collaborative_workflow(llm)
 
     initial_state: PipelineState = {
@@ -65,14 +69,13 @@ def run_pipeline(profile: BusinessProfile, llm: ChatOpenAI = get_llm()) -> Pipel
         "queries": [],
         "scored_queries": [],
         "recommendations": [],
-        "pipeline_run_uuid": pipeline_run_uuid,
+        "pipeline_run_uuid": run_uuid,
         "status": "running",
         "total_tokens": 0,
         "error": None,
     }
 
     final_state = workflow.invoke(initial_state)
-
     status = _resolve_pipeline_status(final_state)
 
     scored_queries = final_state.get("scored_queries", [])
@@ -80,8 +83,8 @@ def run_pipeline(profile: BusinessProfile, llm: ChatOpenAI = get_llm()) -> Pipel
         scored_queries, key=lambda q: q.opportunity_score, reverse=True
     )[:3]
 
-    return PipelineRunResult(
-        pipeline_run_uuid=pipeline_run_uuid,
+    result = PipelineRunResult(
+        pipeline_run_uuid=run_uuid,
         status=status,
         queries_discovered_count=len(final_state.get("queries", [])),
         queries_scored_count=len(scored_queries),
@@ -90,3 +93,14 @@ def run_pipeline(profile: BusinessProfile, llm: ChatOpenAI = get_llm()) -> Pipel
         total_tokens_used=final_state.get("total_tokens", 0),
         error=final_state.get("error"),
     )
+    return result, final_state
+
+
+def run_pipeline(
+    profile: BusinessProfile,
+    llm: ChatOpenAI = get_llm(),
+    pipeline_run_uuid: str | None = None,
+) -> PipelineRunResult:
+    """Run the full pipeline and return a structured result."""
+    result, _ = execute_pipeline(profile, llm, pipeline_run_uuid)
+    return result

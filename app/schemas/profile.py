@@ -1,8 +1,11 @@
 import re
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.schemas.queries import ProfileSummaryStats
 
 _DOMAIN_PATTERN = re.compile(
     r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$",
@@ -81,9 +84,12 @@ class BusinessProfileResponse(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    summary_stats: ProfileSummaryStats = Field(default_factory=ProfileSummaryStats)
 
     @classmethod
-    def from_profile(cls, profile) -> "BusinessProfileResponse":
+    def from_profile(
+        cls, profile, summary_stats: Optional[ProfileSummaryStats] = None
+    ) -> "BusinessProfileResponse":
         return cls(
             profile_uuid=profile.uuid,
             name=profile.name,
@@ -94,4 +100,5 @@ class BusinessProfileResponse(BaseModel):
             status=profile.status,
             created_at=profile.created_at,
             updated_at=profile.updated_at,
+            summary_stats=summary_stats or ProfileSummaryStats(),
         )

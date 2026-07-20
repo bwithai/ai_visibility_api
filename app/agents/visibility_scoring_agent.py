@@ -45,6 +45,42 @@ def _fetch_query_metrics(query, domain: str) -> dict:
     }
 
 
+def score_single_query(
+    query,
+    domain: str,
+    max_volume: int | None = None,
+) -> ScoredQuery:
+    """Score a single discovered query using DataForSEO metrics."""
+    item = _fetch_query_metrics(query, domain)
+    query_obj = item["query"]
+    visibility = item["visibility"]
+    volume = item["volume"]
+
+    effective_max_volume = max_volume if max_volume is not None else volume
+    opportunity_score = compute_opportunity_score(
+        volume=volume,
+        difficulty=item["difficulty"],
+        domain_visible=visibility["domain_visible"],
+        commercial_intent=query_obj.commercial_intent,
+        max_volume=effective_max_volume,
+    )
+
+    return ScoredQuery(
+        query_uuid=query_obj.query_uuid,
+        query_text=query_obj.query_text,
+        commercial_intent=query_obj.commercial_intent,
+        estimated_search_volume=volume,
+        search_volume_source=item["volume_source"],
+        competitive_difficulty=item["difficulty"],
+        difficulty_source=item["difficulty_source"],
+        domain_visible=visibility["domain_visible"],
+        visibility_position=visibility["visibility_position"],
+        visibility_reason=visibility["visibility_reason"],
+        ai_search_volume=visibility.get("ai_search_volume"),
+        opportunity_score=opportunity_score,
+    )
+
+
 def create_visibility_scoring_node() -> Callable[[PipelineState], dict]:
     """Create a LangGraph node that scores queries using DataForSEO APIs only."""
 
