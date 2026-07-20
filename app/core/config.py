@@ -17,7 +17,14 @@ class Settings(BaseSettings):
     FLASK_ENV: Literal["local", "staging", "production"] = "local"
 
     OPENAI_API_KEY: str
-    ANTHROPIC_API_KEY: str
+    DEFAULT_MODEL: str = "gpt-4o-mini"
+    TEMPERATURE: float = 0.7
+    MAX_TOKENS: int = 2000
+
+    DATAFORSEO_LOGIN: str
+    DATAFORSEO_PASSWORD: str
+
+
     DATABASE_URL: str | None = None
 
     POSTGRES_SERVER: str = ""
@@ -31,15 +38,19 @@ class Settings(BaseSettings):
     def SQLALCHEMY_DATABASE_URI(self) -> str:
         if self.DATABASE_URL:
             return self.DATABASE_URL
-        return str(
-            PostgresDsn.build(
-                scheme="postgresql+psycopg",
-                username=self.POSTGRES_USER,
-                password=self.POSTGRES_PASSWORD,
-                host=self.POSTGRES_SERVER,
-                port=self.POSTGRES_PORT,
-                path=self.POSTGRES_DB,
+        if self.POSTGRES_SERVER and self.POSTGRES_USER:
+            return str(
+                PostgresDsn.build(
+                    scheme="postgresql+psycopg",
+                    username=self.POSTGRES_USER,
+                    password=self.POSTGRES_PASSWORD,
+                    host=self.POSTGRES_SERVER,
+                    port=self.POSTGRES_PORT,
+                    path=self.POSTGRES_DB,
+                )
             )
+        raise ValueError(
+            "Database not configured: set DATABASE_URL or POSTGRES_SERVER and POSTGRES_USER"
         )
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
@@ -57,14 +68,13 @@ class Settings(BaseSettings):
     def _enforce_non_default_secrets(self) -> Self:
         self._check_default_secret("SECRET_KEY", self.SECRET_KEY)
         self._check_default_secret("OPENAI_API_KEY", self.OPENAI_API_KEY)
-        self._check_default_secret("ANTHROPIC_API_KEY", self.ANTHROPIC_API_KEY)
 
         if self.DATABASE_URL:
             self._check_default_secret("DATABASE_URL", self.DATABASE_URL)
-        else:
+        elif self.POSTGRES_SERVER or self.POSTGRES_USER:
             if not self.POSTGRES_SERVER or not self.POSTGRES_USER:
                 raise ValueError(
-                    "Either DATABASE_URL or POSTGRES_SERVER and POSTGRES_USER must be set"
+                    "Both POSTGRES_SERVER and POSTGRES_USER must be set when configuring Postgres"
                 )
             self._check_default_secret("POSTGRES_PASSWORD", self.POSTGRES_PASSWORD)
 
