@@ -17,9 +17,6 @@ DATAFORSEO_BASE_URL = "https://api.dataforseo.com/v3"
 KEYWORDS_SEARCH_VOLUME_URL = (
     f"{DATAFORSEO_BASE_URL}/keywords_data/google_ads/search_volume/live"
 )
-LABS_KEYWORD_DIFFICULTY_URL = (
-    f"{DATAFORSEO_BASE_URL}/dataforseo_labs/google/bulk_keyword_difficulty/live"
-)
 LLM_MENTIONS_SEARCH_URL = (
     f"{DATAFORSEO_BASE_URL}/ai_optimization/llm_mentions/search/live"
 )
@@ -110,60 +107,13 @@ def _competition_label_to_index(competition: str | None) -> int | None:
     return _COMPETITION_TO_INDEX.get(competition.strip().upper())
 
 
-def fetch_labs_keyword_difficulty(keyword: str) -> int | None:
-    """Fetch organic keyword difficulty (0-100) from DataForSEO Labs API."""
-    data = _post_dataforseo(
-        LABS_KEYWORD_DIFFICULTY_URL,
-        [{"keywords": [keyword], "location_code": US_LOCATION_CODE, "language_code": "en"}],
-    )
-
-    items = (data["tasks"][0].get("result") or [{}])[0].get("items") or []
-    if not items:
-        logger.warning(
-            "DataForSEO Labs returned no keyword difficulty items for %r.", keyword
-        )
-        return None
-
-    difficulty = items[0].get("keyword_difficulty")
-    if difficulty is None:
-        logger.warning(
-            "DataForSEO Labs returned no keyword_difficulty for %r.", keyword
-        )
-        return None
-
-    difficulty = int(difficulty)
-    if not 0 <= difficulty <= 100:
-        logger.warning(
-            "DataForSEO Labs keyword_difficulty out of range (0-100): %s", difficulty
-        )
-        return None
-    return difficulty
+KeywordMetrics = dict[str, int | None | str]
 
 
-def fetch_keyword_metrics(
-    keyword: str, *, original_query: str | None = None
-) -> dict[str, int | None | str]:
-    """Fetch search volume and difficulty from DataForSEO keyword APIs."""
-    api_keyword = sanitize_keyword_for_google_ads(keyword)
-    label = original_query or keyword
-    if api_keyword != keyword.strip():
-        logger.info(
-            "Sanitized keyword for Google Ads API: %r -> %r", keyword, api_keyword
-        )
-
-    data = _post_dataforseo(
-        KEYWORDS_SEARCH_VOLUME_URL,
-        [{"keywords": [api_keyword], "location_code": US_LOCATION_CODE, "language_code": "en"}],
-    )
-
-    results = data["tasks"][0].get("result") or []
-    if not results:
-        raise RuntimeError(
-            f"Google Ads Keywords API returned no data for keyword {api_keyword!r} "
-            f"(original query: {label!r})."
-        )
-
-    item = results[0]
+def _parse_google_ads_item(
+    item: dict[str, Any], api_keyword: str, label: str
+) -> KeywordMetrics:
+    """Parse search volume and difficulty from one Google Ads API result item."""
     search_volume_raw = item.get("search_volume")
     search_volume = int(search_volume_raw) if search_volume_raw is not None else None
 
@@ -172,36 +122,95 @@ def fetch_keyword_metrics(
         difficulty = int(competition_index)
         difficulty_source = "google_ads"
     else:
-        labs_difficulty = fetch_labs_keyword_difficulty(api_keyword)
-        if labs_difficulty is not None:
-            difficulty = labs_difficulty
-            difficulty_source = "dataforseo_labs"
+        competition_mapped = _competition_label_to_index(item.get("competition"))
+        if competition_mapped is not None:
+            difficulty = competition_mapped
+            difficulty_source = "google_ads"
         else:
-            competition_mapped = _competition_label_to_index(item.get("competition"))
-            if competition_mapped is not None:
-                difficulty = competition_mapped
-                difficulty_source = "google_ads"
-            else:
-                difficulty = DEFAULT_KEYWORD_DIFFICULTY
-                difficulty_source = "estimated"
-                logger.warning(
-                    "No keyword difficulty from Google Ads or Labs for %r "
-                    "(original query: %r); using default %s.",
-                    api_keyword,
-                    label,
-                    DEFAULT_KEYWORD_DIFFICULTY,
-                )
+            difficulty = DEFAULT_KEYWORD_DIFFICULTY
+            difficulty_source = "estimated"
+            logger.warning(
+                "No keyword difficulty from Google Ads for %r "
+                "(original query: %r); using default %s.",
+                api_keyword,
+                label,
+                DEFAULT_KEYWORD_DIFFICULTY,
+            )
 
     if not 0 <= difficulty <= 100:
-        raise RuntimeError(
-            f"Keyword difficulty out of range (0-100): {difficulty}"
-        )
+        raise RuntimeError(f"Keyword difficulty out of range (0-100): {difficulty}")
 
     return {
         "search_volume": search_volume,
         "difficulty": difficulty,
         "difficulty_source": difficulty_source,
     }
+
+
+def fetch_keyword_metrics_batch(
+    keywords: list[str],
+    *,
+    labels: dict[str, str] | None = None,
+) -> dict[str, KeywordMetrics]:
+    """Fetch search volume and difficulty for multiple keywords in one API call."""
+    if not keywords:
+        return {}
+
+    labels = labels or {}
+    unique_keywords = list(dict.fromkeys(keywords))
+
+    data = _post_dataforseo(
+        KEYWORDS_SEARCH_VOLUME_URL,
+        [
+            {
+                "keywords": unique_keywords,
+                "location_code": US_LOCATION_CODE,
+                "language_code": "en",
+            }
+        ],
+    )
+
+    results = data["tasks"][0].get("result") or []
+    if not results:
+        raise RuntimeError(
+            "Google Ads Keywords API returned no data for batch keyword request."
+        )
+
+    metrics_by_keyword: dict[str, KeywordMetrics] = {}
+    for item in results:
+        api_keyword = item.get("keyword")
+        if not api_keyword:
+            continue
+        label = labels.get(api_keyword, api_keyword)
+        metrics_by_keyword[api_keyword] = _parse_google_ads_item(
+            item, api_keyword, label
+        )
+
+    missing = [kw for kw in unique_keywords if kw not in metrics_by_keyword]
+    if missing:
+        raise RuntimeError(
+            "Google Ads Keywords API returned no data for keyword(s): "
+            + ", ".join(repr(kw) for kw in missing)
+        )
+
+    return metrics_by_keyword
+
+
+def fetch_keyword_metrics(
+    keyword: str, *, original_query: str | None = None
+) -> KeywordMetrics:
+    """Fetch search volume and difficulty for a single keyword via Google Ads API."""
+    api_keyword = sanitize_keyword_for_google_ads(keyword)
+    label = original_query or keyword
+    if api_keyword != keyword.strip():
+        logger.info(
+            "Sanitized keyword for Google Ads API: %r -> %r", keyword, api_keyword
+        )
+
+    metrics_by_keyword = fetch_keyword_metrics_batch(
+        [api_keyword], labels={api_keyword: label}
+    )
+    return metrics_by_keyword[api_keyword]
 
 
 def _find_domain_in_item(

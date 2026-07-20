@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, String, Text, Uuid, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
 from app.core.db import Base
@@ -32,4 +32,10 @@ class BusinessProfile(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+    pipeline_runs = relationship("PipelineRun", back_populates="profile")
+    discovered_queries = relationship("DiscoveredQuery", back_populates="profile")
+    content_recommendations = relationship(
+        "ContentRecommendation", back_populates="profile"
     )

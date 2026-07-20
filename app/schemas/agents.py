@@ -74,6 +74,7 @@ class PipelineState(TypedDict, total=False):
     profile: BusinessProfile
     queries: list[DiscoveredQuery]
     scored_queries: list[ScoredQuery]
+    failed_queries: list[dict[str, str]]
     recommendations: list[ContentRecommendation]
     pipeline_run_uuid: str
     status: PipelineStatus

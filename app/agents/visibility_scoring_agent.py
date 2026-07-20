@@ -8,7 +8,11 @@ from app.schemas.agents import (
     ScoredQuery,
     compute_opportunity_score,
 )
-from app.tools.dataforseo_tool import fetch_ai_visibility, fetch_keyword_metrics
+from app.tools.dataforseo_tool import (
+    fetch_ai_visibility,
+    fetch_keyword_metrics_batch,
+    sanitize_keyword_for_google_ads,
+)
 from app.agents.base import log_agent_action
 
 logger = logging.getLogger(__name__)
@@ -16,12 +20,21 @@ logger = logging.getLogger(__name__)
 AGENT_NAME = "VisibilityScoringAgent"
 
 
-def _fetch_query_metrics(query, domain: str) -> dict:
-    """Fetch visibility and keyword metrics for a single query."""
+def _combine_query_metrics(
+    query,
+    domain: str,
+    keyword_metrics_map: dict[str, dict],
+) -> dict:
+    """Combine pre-fetched keyword metrics with per-query AI visibility."""
+    api_keyword = sanitize_keyword_for_google_ads(query.api_keyword)
+    keyword_metrics = keyword_metrics_map.get(api_keyword)
+    if keyword_metrics is None:
+        raise RuntimeError(
+            f"No Google Ads metrics for keyword {api_keyword!r} "
+            f"(query: {query.query_text!r})."
+        )
+
     visibility = fetch_ai_visibility(query.query_text, domain)
-    keyword_metrics = fetch_keyword_metrics(
-        query.api_keyword, original_query=query.query_text
-    )
 
     volume = keyword_metrics["search_volume"]
     volume_source = "google_ads"
@@ -60,7 +73,7 @@ def create_visibility_scoring_node() -> Callable[[PipelineState], dict]:
         # Production: score every discovered query.
         queries_to_score = queries
 
-        # Dev/testing — limit DataForSEO API calls to save credits.
+        # Dev/testing — limit LLM Mentions API calls to save credits.
         # Uncomment the block below and comment out `queries_to_score = queries` above.
         # import random
         # MAX_QUERIES_TO_SCORE = 1  # DataForSEO live endpoint: 12 req/min
@@ -80,12 +93,31 @@ def create_visibility_scoring_node() -> Callable[[PipelineState], dict]:
             },
         )
 
+        keyword_labels: dict[str, str] = {}
+        for query in queries_to_score:
+            api_keyword = sanitize_keyword_for_google_ads(query.api_keyword)
+            keyword_labels.setdefault(api_keyword, query.query_text)
+
+        try:
+            keyword_metrics_map = fetch_keyword_metrics_batch(
+                list(keyword_labels.keys()),
+                labels=keyword_labels,
+            )
+        except Exception as e:
+            error = f"Failed to fetch batched keyword metrics: {e}"
+            logger.error("[%s] %s", AGENT_NAME, error, exc_info=True)
+            return {"status": "failed", "error": error}
+
         raw_metrics: list[dict] = []
         skipped_queries: list[dict[str, str]] = []
 
         for query in queries_to_score:
             try:
-                raw_metrics.append(_fetch_query_metrics(query, profile.domain))
+                raw_metrics.append(
+                    _combine_query_metrics(
+                        query, profile.domain, keyword_metrics_map
+                    )
+                )
             except Exception as e:
                 error_reason = str(e)
                 skipped_queries.append(

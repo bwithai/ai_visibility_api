@@ -6,7 +6,12 @@ from alembic import context
 
 from app.core.config import settings
 from app.core.db import Base
-from app.models.profile import BusinessProfile  # noqa: F401
+from app.models import (  # noqa: F401
+    BusinessProfile,
+    ContentRecommendation,
+    DiscoveredQuery,
+    PipelineRun,
+)
 
 config = context.config
 
